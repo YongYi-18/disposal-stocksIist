@@ -1,12 +1,4 @@
 <!DOCTYPE html>
-<!--
-  上市上櫃處置股清單（靜態版）
-  ─────────────────────────────────────────────
-  此檔案不需要 Python，直接部署到靜態主機即可讓手機存取：
-  ① GitHub Pages：上傳到 repo → Settings → Pages → Deploy from branch
-  ② Netlify Drop ：開啟 app.netlify.com/drop，拖曳此檔案即完成
-  ─────────────────────────────────────────────
--->
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -43,7 +35,7 @@
   #refreshBtn:hover:not(:disabled){background:#2e7d32;transform:scale(1.03)}
   #refreshBtn:disabled{background:#78909c;cursor:default}
 
-  #stats{font-size:.8rem;opacity:.88;white-space:nowrap}
+  #stats{font-size:.8rem;opacity:.88}
 
   /* ── 主內容 ── */
   #main{padding:16px}
@@ -71,10 +63,7 @@
   td{padding:9px 13px;font-size:.87rem;border-bottom:1px solid #eee;vertical-align:middle}
 
   /* ── 徽章 ── */
-  .badge{
-    display:inline-block;padding:2px 9px;border-radius:12px;
-    font-size:.76rem;font-weight:700;white-space:nowrap;
-  }
+  .badge{display:inline-block;padding:2px 9px;border-radius:12px;font-size:.76rem;font-weight:700;white-space:nowrap}
   .twse{background:#e3f2fd;color:#1565c0}
   .tpex{background:#e8f5e9;color:#2e7d32}
 
@@ -98,14 +87,11 @@
   .det-btn:hover{background:#e8eaf6}
 
   /* ── 訊息 ── */
-  #loading{text-align:center;padding:60px;font-size:1.05rem;color:#666;line-height:1.8}
+  #loading{text-align:center;padding:60px;font-size:1.05rem;color:#666;line-height:2}
   #emptyMsg{text-align:center;padding:40px;color:#999;font-size:.95rem}
 
   /* ── Modal ── */
-  #modal{
-    display:none;position:fixed;inset:0;z-index:200;
-    background:rgba(0,0,0,.55);
-  }
+  #modal{display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55)}
   #mbox{
     position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
     background:#fff;border-radius:10px;
@@ -175,121 +161,9 @@
 
 <script>
 // ════════════════════════════════════════
-//  API 端點
-// ════════════════════════════════════════
-var TWSE_URL = 'https://openapi.twse.com.tw/v1/announcement/punish';
-var TPEX_URL = 'https://www.tpex.org.tw/openapi/v1/tpex_disposal_information';
-
-// ════════════════════════════════════════
-//  日期工具
-// ════════════════════════════════════════
-var WEEKDAY_CN = ['一','二','三','四','五','六','日'];
-
-function rocToDate(y, m, d) {
-  var dt = new Date(+y + 1911, +m - 1, +d);
-  return isNaN(dt.getTime()) ? null : dt;
-}
-
-// '115/06/02～115/06/15' → [Date, Date]
-function parseDatesTWSE(period) {
-  var re = /(\d+)\/(\d+)\/(\d+)/g, m, arr = [];
-  while ((m = re.exec(period)) !== null) arr.push(rocToDate(m[1], m[2], m[3]));
-  return [arr[0] || null, arr[1] || null];
-}
-
-// '1150615~1150629' → [Date, Date]
-function parseDatesTpex(period) {
-  var re = /(\d{3})(\d{2})(\d{2})/g, m, arr = [];
-  while ((m = re.exec(period)) !== null) arr.push(rocToDate(m[1], m[2], m[3]));
-  return [arr[0] || null, arr[1] || null];
-}
-
-// Date → '2026/06/15(一)'
-function fmtDateWd(d) {
-  if (!d) return '-';
-  return d.getFullYear() + '/' +
-    String(d.getMonth() + 1).padStart(2, '0') + '/' +
-    String(d.getDate()).padStart(2, '0') +
-    '(' + WEEKDAY_CN[(d.getDay() + 6) % 7] + ')';
-}
-
-function fmtPeriod(sd, ed) { return fmtDateWd(sd) + ' ～ ' + fmtDateWd(ed); }
-
-function daysLeft(ed) {
-  if (!ed) return null;
-  var today = new Date(); today.setHours(0, 0, 0, 0);
-  return Math.round((ed.getTime() - today.getTime()) / 86400000);
-}
-
-// ════════════════════════════════════════
-//  撮合週期
-// ════════════════════════════════════════
-var CN_NUM = {
-  '六十':60,'五十五':55,'五十':50,'四十五':45,'四十':40,'三十五':35,
-  '三十':30,'二十九':29,'二十八':28,'二十七':27,'二十六':26,'二十五':25,
-  '二十四':24,'二十三':23,'二十二':22,'二十一':21,'二十':20,
-  '十九':19,'十八':18,'十七':17,'十六':16,'十五':15,
-  '十四':14,'十三':13,'十二':12,'十一':11,'十':10,
-  '九':9,'八':8,'七':7,'六':6,'五':5,'四':4,'三':3,'二':2,'一':1
-};
-
-function extractCycle(text) {
-  if (!text) return '-';
-  var m = text.match(/每[隔約\s]*(\d+|[一二三四五六七八九十]+)\s*分鐘撮合/);
-  if (m) {
-    var raw = m[1];
-    var n = (raw in CN_NUM) ? CN_NUM[raw] : parseInt(raw, 10);
-    return (isNaN(n) ? raw : n) + '分鐘';
-  }
-  return text.indexOf('隨機') >= 0 ? '隨機' : '-';
-}
-
-// ════════════════════════════════════════
-//  資料轉換
-// ════════════════════════════════════════
-function processTWSE(raw) {
-  return raw.map(function(item) {
-    var p = item.DispositionPeriod || '';
-    var dates = parseDatesTWSE(p); var sd = dates[0], ed = dates[1];
-    var d = daysLeft(ed); var det = item.Detail || '';
-    return {
-      market: '上市', code: item.Code || '', name: item.Name || '',
-      cycle: extractCycle(det), days: d, days_s: d !== null ? d : 9999,
-      period: fmtPeriod(sd, ed),
-      reasons: item.ReasonsOfDisposition || '',
-      measures: item.DispositionMeasures || '',
-      detail: det
-    };
-  });
-}
-
-function processTpex(raw) {
-  return raw.map(function(item) {
-    var p = item.DispositionPeriod || '';
-    var dates = parseDatesTpex(p); var sd = dates[0], ed = dates[1];
-    var d = daysLeft(ed); var det = item.DisposalCondition || '';
-    return {
-      market: '上櫃', code: item.SecuritiesCompanyCode || '', name: item.CompanyName || '',
-      cycle: extractCycle(det), days: d, days_s: d !== null ? d : 9999,
-      period: fmtPeriod(sd, ed),
-      reasons: item.DispositionReasons || '',
-      measures: '',
-      detail: det
-    };
-  });
-}
-
-function defaultSort(arr) {
-  return arr.slice().sort(function(a, b) {
-    var ma = a.market === '上市' ? 0 : 1, mb = b.market === '上市' ? 0 : 1;
-    if (ma !== mb) return ma - mb;
-    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
-  });
-}
-
-// ════════════════════════════════════════
 //  排序
 // ════════════════════════════════════════
+var ALL = [], FILTERED = [];
 var sortCol = 'market', sortDir = 1;
 
 function getVal(s, col) {
@@ -334,17 +208,8 @@ function updateSortIcons() {
 }
 
 // ════════════════════════════════════════
-//  載入資料（直接呼叫兩個 API）
+//  載入資料（讀 data.json，無 CORS 問題）
 // ════════════════════════════════════════
-var ALL = [], FILTERED = [];
-
-function safeJson(url) {
-  return fetch(url)
-    .then(function(r) { return r.json(); })
-    .then(function(data) { return { ok: true, data: data }; })
-    .catch(function(e)  { return { ok: false, err: e.message }; });
-}
-
 function loadData() {
   var btn = document.getElementById('refreshBtn');
   btn.disabled = true; btn.textContent = '載入中…';
@@ -352,33 +217,26 @@ function loadData() {
   document.getElementById('tblWrap').style.display = 'none';
   document.getElementById('stats').textContent = '';
 
-  Promise.all([safeJson(TWSE_URL), safeJson(TPEX_URL)])
-    .then(function(results) {
-      var twseRes = results[0], tpexRes = results[1];
-      var twseRaw  = (twseRes.ok  && Array.isArray(twseRes.data))  ? twseRes.data  : [];
-      var tpexRaw  = (tpexRes.ok  && Array.isArray(tpexRes.data))  ? tpexRes.data  : [];
-      var warns = [];
-      if (!twseRes.ok)  warns.push('上市資料失敗：' + twseRes.err);
-      if (!tpexRes.ok)  warns.push('上櫃資料失敗：' + tpexRes.err);
-
-      ALL = defaultSort(processTWSE(twseRaw).concat(processTpex(tpexRaw)));
-
-      var now   = new Date().toLocaleString('zh-TW', {hour12: false});
-      var total = ALL.length;
-      var twse  = twseRaw.length;
-      var tpex  = tpexRaw.length;
-
+  fetch('./data.json?_=' + Date.now())
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(res) {
+      ALL = res.stocks || [];
+      var warn = (res.errors && res.errors.length)
+        ? '  ⚠ 部分資料失敗：' + res.errors.join('、') : '';
       document.getElementById('stats').textContent =
-        '共 ' + total + ' 筆（上市 ' + twse + '、上櫃 ' + tpex + '）｜更新：' + now +
-        (warns.length ? '  ⚠ ' + warns.join('；') : '');
-
+        '共 ' + res.total + ' 筆（上市 ' + res.twse + '、上櫃 ' + res.tpex +
+        '）｜更新：' + res.updated_at + warn;
       applyFilter();
       document.getElementById('loading').style.display = 'none';
       document.getElementById('tblWrap').style.display = 'block';
     })
     .catch(function(e) {
       document.getElementById('loading').innerHTML =
-        '⚠ 無法載入資料<br><small style="color:#999">' + e.message + '</small>';
+        '⚠ 資料尚未產生或載入失敗<br>' +
+        '<small style="color:#999">請到 GitHub → Actions → 手動執行 <b>更新處置股資料</b> 後再重新整理</small>';
     })
     .finally(function() {
       btn.disabled = false; btn.textContent = '⟳ 重新整理';
@@ -452,8 +310,8 @@ function esc(str) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── 啟動 ──
 loadData();
 </script>
 </body>
 </html>
+
