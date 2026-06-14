@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<!--
+  上市上櫃處置股清單（靜態版）
+  ─────────────────────────────────────────────
+  此檔案不需要 Python，直接部署到靜態主機即可讓手機存取：
+  ① GitHub Pages：上傳到 repo → Settings → Pages → Deploy from branch
+  ② Netlify Drop ：開啟 app.netlify.com/drop，拖曳此檔案即完成
+  ─────────────────────────────────────────────
+-->
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>處置股清單</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#333;min-height:100vh}
+
+  /* ── 頂部固定列 ── */
+  #header{
+    position:sticky;top:0;z-index:100;
+    background:linear-gradient(135deg,#1a237e,#283593);
+    color:#fff;padding:12px 20px;
+    box-shadow:0 2px 10px rgba(0,0,0,.35);
+  }
+  #header h1{font-size:1.1rem;font-weight:700;letter-spacing:.5px}
+  #toolbar{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap}
+
+  #searchInput{
+    flex:1;min-width:220px;max-width:420px;
+    padding:7px 16px;border-radius:20px;border:none;
+    font-size:.9rem;outline:none;
+    box-shadow:0 1px 4px rgba(0,0,0,.2);
+  }
+  #searchInput:focus{box-shadow:0 0 0 3px rgba(255,255,255,.35)}
+
+  #refreshBtn{
+    padding:7px 20px;border-radius:20px;border:none;
+    background:#43a047;color:#fff;cursor:pointer;
+    font-size:.88rem;font-weight:700;letter-spacing:.3px;
+    transition:background .2s,transform .1s;white-space:nowrap;
+  }
+  #refreshBtn:hover:not(:disabled){background:#2e7d32;transform:scale(1.03)}
+  #refreshBtn:disabled{background:#78909c;cursor:default}
+
+  #stats{font-size:.8rem;opacity:.88;white-space:nowrap}
+
+  /* ── 主內容 ── */
+  #main{padding:16px}
+
+  .table-wrap{
+    overflow-x:auto;border-radius:8px;
+    box-shadow:0 2px 8px rgba(0,0,0,.1);
+  }
+  table{width:100%;border-collapse:collapse;background:#fff;min-width:750px}
+
+  thead th{
+    background:#283593;color:#fff;
+    padding:10px 13px;text-align:left;
+    font-size:.83rem;font-weight:700;white-space:nowrap;
+  }
+  thead th:first-child{border-radius:8px 0 0 0}
+  thead th:last-child {border-radius:0 8px 0 0}
+  thead th.sortable{cursor:pointer;user-select:none}
+  thead th.sortable:hover{background:#3949ab}
+  thead th.sorted{background:#1a237e}
+  .si{font-size:.7rem;margin-left:3px}
+
+  tbody tr:nth-child(even){background:#f5f6ff}
+  tbody tr:hover{background:#e8eaf6;transition:background .15s}
+  td{padding:9px 13px;font-size:.87rem;border-bottom:1px solid #eee;vertical-align:middle}
+
+  /* ── 徽章 ── */
+  .badge{
+    display:inline-block;padding:2px 9px;border-radius:12px;
+    font-size:.76rem;font-weight:700;white-space:nowrap;
+  }
+  .twse{background:#e3f2fd;color:#1565c0}
+  .tpex{background:#e8f5e9;color:#2e7d32}
+
+  /* ── 天數顏色 ── */
+  .d-red   {color:#c62828;font-weight:700}
+  .d-orange{color:#e65100;font-weight:700}
+  .d-green {color:#2e7d32;font-weight:600}
+  .d-grey  {color:#9e9e9e}
+
+  /* ── Goodinfo 連結 ── */
+  .code-link{color:#1565c0;font-weight:700;text-decoration:none}
+  .code-link:hover{text-decoration:underline;color:#0d47a1}
+
+  /* ── 詳情按鈕 ── */
+  .det-btn{
+    padding:3px 11px;border-radius:5px;
+    border:1px solid #5c6bc0;background:#fff;
+    color:#5c6bc0;cursor:pointer;font-size:.8rem;
+    transition:background .15s;
+  }
+  .det-btn:hover{background:#e8eaf6}
+
+  /* ── 訊息 ── */
+  #loading{text-align:center;padding:60px;font-size:1.05rem;color:#666;line-height:1.8}
+  #emptyMsg{text-align:center;padding:40px;color:#999;font-size:.95rem}
+
+  /* ── Modal ── */
+  #modal{
+    display:none;position:fixed;inset:0;z-index:200;
+    background:rgba(0,0,0,.55);
+  }
+  #mbox{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    background:#fff;border-radius:10px;
+    width:92%;max-width:660px;max-height:82vh;
+    overflow-y:auto;padding:22px 24px;
+    box-shadow:0 6px 30px rgba(0,0,0,.35);
+  }
+  #mtitle{font-size:1rem;font-weight:700;color:#1a237e;margin-bottom:14px}
+  .mrow{margin-bottom:10px}
+  .mlabel{font-size:.78rem;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .mval{font-size:.88rem;line-height:1.75;color:#333;white-space:pre-wrap;margin-top:2px}
+  #mclose{
+    display:block;width:100%;margin-top:18px;
+    padding:9px;background:#1a237e;color:#fff;
+    border:none;border-radius:6px;cursor:pointer;font-size:.9rem;
+    transition:background .2s;
+  }
+  #mclose:hover{background:#283593}
+</style>
+</head>
+<body>
+
+<!-- ── 固定頂部 ── -->
+<div id="header">
+  <h1>上市上櫃處置股清單</h1>
+  <div id="toolbar">
+    <input id="searchInput" type="text" placeholder="搜尋代號、名稱、原因…" oninput="applyFilter()">
+    <button id="refreshBtn" onclick="loadData()">⟳ 重新整理</button>
+    <span id="stats"></span>
+  </div>
+</div>
+
+<!-- ── 主表格 ── -->
+<div id="main">
+  <div id="loading">資料載入中，請稍候…</div>
+
+  <div class="table-wrap" id="tblWrap" style="display:none">
+    <table>
+      <thead>
+        <tr>
+          <th class="sortable" onclick="onHeaderClick('market')">市/櫃<span class="si" id="si-market"></span></th>
+          <th class="sortable" onclick="onHeaderClick('code')">股票代號<span class="si" id="si-code"></span></th>
+          <th class="sortable" onclick="onHeaderClick('name')">股票名稱<span class="si" id="si-name"></span></th>
+          <th class="sortable" onclick="onHeaderClick('cycle')">撮合週期<span class="si" id="si-cycle"></span></th>
+          <th class="sortable" onclick="onHeaderClick('days')">距離出關日<span class="si" id="si-days"></span></th>
+          <th class="sortable" onclick="onHeaderClick('period')">處置期間<span class="si" id="si-period"></span></th>
+          <th>詳細說明</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="emptyMsg" style="display:none">找不到符合條件的資料</div>
+  </div>
+</div>
+
+<!-- ── Modal ── -->
+<div id="modal" onclick="if(event.target===this)closeModal()">
+  <div id="mbox">
+    <div id="mtitle"></div>
+    <div class="mrow"><div class="mlabel">處置期間</div><div class="mval" id="mperiod"></div></div>
+    <div class="mrow"><div class="mlabel">處置原因</div><div class="mval" id="mreasons"></div></div>
+    <div class="mrow" id="mmrow"><div class="mlabel">處置措施</div><div class="mval" id="mmeasures"></div></div>
+    <div class="mrow"><div class="mlabel">詳細內容</div><div class="mval" id="mdetail"></div></div>
+    <button id="mclose" onclick="closeModal()">關閉</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════
+//  API 端點
+// ════════════════════════════════════════
+var TWSE_URL = 'https://openapi.twse.com.tw/v1/announcement/punish';
+var TPEX_URL = 'https://www.tpex.org.tw/openapi/v1/tpex_disposal_information';
+
+// ════════════════════════════════════════
+//  日期工具
+// ════════════════════════════════════════
+var WEEKDAY_CN = ['一','二','三','四','五','六','日'];
+
+function rocToDate(y, m, d) {
+  var dt = new Date(+y + 1911, +m - 1, +d);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+// '115/06/02～115/06/15' → [Date, Date]
+function parseDatesTWSE(period) {
+  var re = /(\d+)\/(\d+)\/(\d+)/g, m, arr = [];
+  while ((m = re.exec(period)) !== null) arr.push(rocToDate(m[1], m[2], m[3]));
+  return [arr[0] || null, arr[1] || null];
+}
+
+// '1150615~1150629' → [Date, Date]
+function parseDatesTpex(period) {
+  var re = /(\d{3})(\d{2})(\d{2})/g, m, arr = [];
+  while ((m = re.exec(period)) !== null) arr.push(rocToDate(m[1], m[2], m[3]));
+  return [arr[0] || null, arr[1] || null];
+}
+
+// Date → '2026/06/15(一)'
+function fmtDateWd(d) {
+  if (!d) return '-';
+  return d.getFullYear() + '/' +
+    String(d.getMonth() + 1).padStart(2, '0') + '/' +
+    String(d.getDate()).padStart(2, '0') +
+    '(' + WEEKDAY_CN[(d.getDay() + 6) % 7] + ')';
+}
+
+function fmtPeriod(sd, ed) { return fmtDateWd(sd) + ' ～ ' + fmtDateWd(ed); }
+
+function daysLeft(ed) {
+  if (!ed) return null;
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((ed.getTime() - today.getTime()) / 86400000);
+}
+
+// ════════════════════════════════════════
+//  撮合週期
+// ════════════════════════════════════════
+var CN_NUM = {
+  '六十':60,'五十五':55,'五十':50,'四十五':45,'四十':40,'三十五':35,
+  '三十':30,'二十九':29,'二十八':28,'二十七':27,'二十六':26,'二十五':25,
+  '二十四':24,'二十三':23,'二十二':22,'二十一':21,'二十':20,
+  '十九':19,'十八':18,'十七':17,'十六':16,'十五':15,
+  '十四':14,'十三':13,'十二':12,'十一':11,'十':10,
+  '九':9,'八':8,'七':7,'六':6,'五':5,'四':4,'三':3,'二':2,'一':1
+};
+
+function extractCycle(text) {
+  if (!text) return '-';
+  var m = text.match(/每[隔約\s]*(\d+|[一二三四五六七八九十]+)\s*分鐘撮合/);
+  if (m) {
+    var raw = m[1];
+    var n = (raw in CN_NUM) ? CN_NUM[raw] : parseInt(raw, 10);
+    return (isNaN(n) ? raw : n) + '分鐘';
+  }
+  return text.indexOf('隨機') >= 0 ? '隨機' : '-';
+}
+
+// ════════════════════════════════════════
+//  資料轉換
+// ════════════════════════════════════════
+function processTWSE(raw) {
+  return raw.map(function(item) {
+    var p = item.DispositionPeriod || '';
+    var dates = parseDatesTWSE(p); var sd = dates[0], ed = dates[1];
+    var d = daysLeft(ed); var det = item.Detail || '';
+    return {
+      market: '上市', code: item.Code || '', name: item.Name || '',
+      cycle: extractCycle(det), days: d, days_s: d !== null ? d : 9999,
+      period: fmtPeriod(sd, ed),
+      reasons: item.ReasonsOfDisposition || '',
+      measures: item.DispositionMeasures || '',
+      detail: det
+    };
+  });
+}
+
+function processTpex(raw) {
+  return raw.map(function(item) {
+    var p = item.DispositionPeriod || '';
+    var dates = parseDatesTpex(p); var sd = dates[0], ed = dates[1];
+    var d = daysLeft(ed); var det = item.DisposalCondition || '';
+    return {
+      market: '上櫃', code: item.SecuritiesCompanyCode || '', name: item.CompanyName || '',
+      cycle: extractCycle(det), days: d, days_s: d !== null ? d : 9999,
+      period: fmtPeriod(sd, ed),
+      reasons: item.DispositionReasons || '',
+      measures: '',
+      detail: det
+    };
+  });
+}
+
+function defaultSort(arr) {
+  return arr.slice().sort(function(a, b) {
+    var ma = a.market === '上市' ? 0 : 1, mb = b.market === '上市' ? 0 : 1;
+    if (ma !== mb) return ma - mb;
+    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
+  });
+}
+
+// ════════════════════════════════════════
+//  排序
+// ════════════════════════════════════════
+var sortCol = 'market', sortDir = 1;
+
+function getVal(s, col) {
+  if (col === 'market') return s.market === '上市' ? 0 : 1;
+  if (col === 'code')   return s.code;
+  if (col === 'name')   return s.name;
+  if (col === 'cycle')  { var m = s.cycle.match(/(\d+)/); return m ? +m[1] : 999; }
+  if (col === 'days')   return s.days_s;
+  if (col === 'period') return s.period;
+  return '';
+}
+
+function sortData(arr) {
+  return arr.slice().sort(function(a, b) {
+    var va = getVal(a, sortCol), vb = getVal(b, sortCol);
+    if (va < vb) return -1 * sortDir;
+    if (va > vb) return  1 * sortDir;
+    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
+  });
+}
+
+function onHeaderClick(col) {
+  if (sortCol === col) { sortDir = -sortDir; } else { sortCol = col; sortDir = 1; }
+  applyFilter();
+}
+
+function updateSortIcons() {
+  ['market','code','name','cycle','days','period'].forEach(function(c) {
+    var el = document.getElementById('si-' + c);
+    var th = el && el.parentElement;
+    if (!el) return;
+    if (c === sortCol) {
+      el.textContent = sortDir === 1 ? ' ▲' : ' ▼';
+      el.style.opacity = '1';
+      th.classList.add('sorted');
+    } else {
+      el.textContent = ' ⇅';
+      el.style.opacity = '0.35';
+      th.classList.remove('sorted');
+    }
+  });
+}
+
+// ════════════════════════════════════════
+//  載入資料（直接呼叫兩個 API）
+// ════════════════════════════════════════
+var ALL = [], FILTERED = [];
+
+function safeJson(url) {
+  return fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) { return { ok: true, data: data }; })
+    .catch(function(e)  { return { ok: false, err: e.message }; });
+}
+
+function loadData() {
+  var btn = document.getElementById('refreshBtn');
+  btn.disabled = true; btn.textContent = '載入中…';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('tblWrap').style.display = 'none';
+  document.getElementById('stats').textContent = '';
+
+  Promise.all([safeJson(TWSE_URL), safeJson(TPEX_URL)])
+    .then(function(results) {
+      var twseRes = results[0], tpexRes = results[1];
+      var twseRaw  = (twseRes.ok  && Array.isArray(twseRes.data))  ? twseRes.data  : [];
+      var tpexRaw  = (tpexRes.ok  && Array.isArray(tpexRes.data))  ? tpexRes.data  : [];
+      var warns = [];
+      if (!twseRes.ok)  warns.push('上市資料失敗：' + twseRes.err);
+      if (!tpexRes.ok)  warns.push('上櫃資料失敗：' + tpexRes.err);
+
+      ALL = defaultSort(processTWSE(twseRaw).concat(processTpex(tpexRaw)));
+
+      var now   = new Date().toLocaleString('zh-TW', {hour12: false});
+      var total = ALL.length;
+      var twse  = twseRaw.length;
+      var tpex  = tpexRaw.length;
+
+      document.getElementById('stats').textContent =
+        '共 ' + total + ' 筆（上市 ' + twse + '、上櫃 ' + tpex + '）｜更新：' + now +
+        (warns.length ? '  ⚠ ' + warns.join('；') : '');
+
+      applyFilter();
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('tblWrap').style.display = 'block';
+    })
+    .catch(function(e) {
+      document.getElementById('loading').innerHTML =
+        '⚠ 無法載入資料<br><small style="color:#999">' + e.message + '</small>';
+    })
+    .finally(function() {
+      btn.disabled = false; btn.textContent = '⟳ 重新整理';
+    });
+}
+
+// ════════════════════════════════════════
+//  過濾 + 渲染
+// ════════════════════════════════════════
+function applyFilter() {
+  var q = document.getElementById('searchInput').value.trim().toLowerCase();
+  var filtered = q
+    ? ALL.filter(function(s) {
+        return s.code.toLowerCase().indexOf(q)    > -1 ||
+               s.name.toLowerCase().indexOf(q)    > -1 ||
+               s.reasons.toLowerCase().indexOf(q) > -1;
+      })
+    : ALL.slice();
+
+  FILTERED = sortData(filtered);
+  updateSortIcons();
+
+  var tbody = document.getElementById('tbody');
+  document.getElementById('emptyMsg').style.display = FILTERED.length ? 'none' : 'block';
+  if (!FILTERED.length) { tbody.innerHTML = ''; return; }
+
+  tbody.innerHTML = FILTERED.map(function(s, i) {
+    var badge = s.market === '上市'
+      ? '<span class="badge twse">上市</span>'
+      : '<span class="badge tpex">上櫃</span>';
+
+    var daysHtml = '-';
+    if (s.days !== null && s.days !== undefined) {
+      var cls   = s.days < 0 ? 'd-grey' : s.days <= 2 ? 'd-red' : s.days <= 5 ? 'd-orange' : 'd-green';
+      var label = s.days < 0 ? '已過期' : s.days === 0 ? '今日到期' : s.days + '天';
+      daysHtml  = '<span class="' + cls + '">' + label + '</span>';
+    }
+
+    return '<tr>' +
+      '<td>' + badge + '</td>' +
+      '<td><a class="code-link" href="https://goodinfo.tw/tw/ShowK_Chart.asp?STOCK_ID=' + esc(s.code) + '&CHT_CAT=DAY" target="_blank" rel="noopener">' + esc(s.code) + '</a></td>' +
+      '<td>' + esc(s.name) + '</td>' +
+      '<td>' + esc(s.cycle) + '</td>' +
+      '<td>' + daysHtml + '</td>' +
+      '<td style="white-space:nowrap">' + esc(s.period) + '</td>' +
+      '<td><button class="det-btn" onclick="showDetail(' + i + ')">詳情</button></td>' +
+      '</tr>';
+  }).join('');
+}
+
+// ════════════════════════════════════════
+//  Modal
+// ════════════════════════════════════════
+function showDetail(i) {
+  var s = FILTERED[i];
+  document.getElementById('mtitle').textContent    = s.code + ' ' + s.name + '（' + s.market + '）';
+  document.getElementById('mperiod').textContent   = s.period  || '-';
+  document.getElementById('mreasons').textContent  = s.reasons || '-';
+  document.getElementById('mmrow').style.display   = s.measures ? '' : 'none';
+  document.getElementById('mmeasures').textContent = s.measures || '';
+  document.getElementById('mdetail').textContent   = s.detail   || '-';
+  document.getElementById('modal').style.display   = 'block';
+}
+
+function closeModal() { document.getElementById('modal').style.display = 'none'; }
+
+function esc(str) {
+  if (!str) return '-';
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── 啟動 ──
+loadData();
+</script>
+</body>
+</html>
