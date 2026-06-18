@@ -211,6 +211,9 @@ function updateSortIcons() {
 //  載入資料（讀 data.json，無 CORS 問題）
 // ════════════════════════════════════════
 function loadData() {
+  // 1. 清空搜尋欄欄位
+  document.getElementById('searchInput').value = '';
+
   var btn = document.getElementById('refreshBtn');
   btn.disabled = true; btn.textContent = '載入中…';
   document.getElementById('loading').style.display = 'block';
